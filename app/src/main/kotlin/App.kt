@@ -1,4 +1,9 @@
+import com.sun.net.httpserver.Headers
+import sun.net.www.protocol.http.HttpURLConnection.userAgent
 import java.net.ServerSocket
+import java.net.Socket
+import java.util.Locale
+import java.util.Locale.getDefault
 
 const val OK = "HTTP/1.1 200 OK\r\n"
 const val NOT_FOUND = "HTTP/1.1 404 Not Found\r\n\r\n"
@@ -20,13 +25,29 @@ fun main() {
     val reader = socket.inputStream.bufferedReader()
     val requestLine = reader.readLine()
 
+
     val (method, path, protocol) = requestLine.split(" ")
+    val headers = readHeader(reader)
+
 
     when {
         path == "/" -> socket.outputStream.write((OK + "\r\n").toByteArray())
         path.startsWith("/echo") -> echo(path, socket)
+        path == "/user-agent" -> userAgent(path, socket, headers)
         else -> socket.outputStream.write(NOT_FOUND.toByteArray())
     }
+}
+
+fun userAgent(path: String, socket: Socket, headers: Map<String, String>) {
+    val header = headers["user-agent"] ?: ""
+    val rawResponse = StringBuilder()
+    rawResponse.append(OK)
+    rawResponse.append("Content-Type: text/plain\r\n")
+    rawResponse.append("Content-Length: ${header.length}\r\n")
+    rawResponse.append("\r\n")
+    rawResponse.append(header)
+
+    socket.outputStream.write(rawResponse.toString().toByteArray())
 }
 
 fun echo(path: String, socket: java.net.Socket) {
@@ -39,4 +60,22 @@ fun echo(path: String, socket: java.net.Socket) {
     rawResponse.append(payload)
 
     socket.outputStream.write(rawResponse.toString().toByteArray())
+}
+
+fun readHeader(reader: java.io.BufferedReader): Map<String, String> {
+    val headers = mutableMapOf<String, String>()
+
+    while (true) {
+        val line = reader.readLine() ?: break
+        if (line.isEmpty()) break
+
+        val idx = line.indexOf(":")
+        if (idx == -1) break
+
+        val key = line.substring(0, idx).trim().lowercase(getDefault())
+        val value = line.substring(idx + 1).trim()
+
+        headers[key] = value
+    }
+    return headers
 }
