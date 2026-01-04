@@ -11,21 +11,34 @@ fun main() {
     // Since the tester restarts your program quite often, setting SO_REUSEADDR
     // ensures that we don't run into 'Address already in use' errors
     serverSocket.reuseAddress = true
-    val response200 = "HTTP/1.1 200 OK\r\n\r\n"
+    val response200 = "HTTP/1.1 200 OK\r\n"
     val response404 = "HTTP/1.1 404 Not Found\r\n\r\n"
 
     val socket = serverSocket.accept() // Wait for connection from client.
 
     val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
     val requestLine = reader.readLine()
+    val output = socket.getOutputStream()
 
     val paths = requestLine.split(" ")
+
     val path = if (paths.size > 1) paths[1] else "/"
+    val prefix = path.split("/")
+    val isEcho = prefix.size > 2 && prefix[1] == "echo"
 
-    val response = if (path == "/") response200 else response404
+    if (path != "/" && !isEcho) {
+        output.write(response404.toByteArray())
+    } else if (path == "/") {
+        val res = response200 + "\r\n"
+        output.write(res.toByteArray())
+    } else {
+        val echo = if (prefix[1] == "echo") prefix[2] else ""
+        val header = "Content-Type: text/plain\r\nContent-Length: ${echo.length}\r\n\r\n${echo}"
 
-    val output = socket.getOutputStream()
-    output.write(response.toByteArray())
+        val res = response200 + header
+        output.write(res.toByteArray())
+
+    }
 
     println("accepted new connection")
 }
