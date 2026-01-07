@@ -21,6 +21,7 @@ repositories {
 }
 
 dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
