@@ -1,19 +1,20 @@
-import com.sun.net.httpserver.Headers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import sun.net.www.protocol.http.HttpURLConnection.userAgent
+import java.io.File
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.Locale
 import java.util.Locale.getDefault
-import kotlin.coroutines.coroutineContext
 
 const val OK = "HTTP/1.1 200 OK\r\n"
 const val NOT_FOUND = "HTTP/1.1 404 Not Found\r\n\r\n"
 
-fun main() {
+fun main(args: Array<String>) {
+
+    val directory = getOption(args, "--directory")
+
+    println("Directory: $directory")
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println("Logs from your program will appear here!")
 
@@ -45,6 +46,7 @@ fun main() {
                         path == "/" -> socket.outputStream.write((OK + "\r\n").toByteArray())
                         path.startsWith("/echo") -> echo(path, socket)
                         path == "/user-agent" -> userAgent(path, socket, headers)
+                        path.startsWith("/files") -> files(path, socket, directory)
                         else -> socket.outputStream.write(NOT_FOUND.toByteArray())
                     }
 
@@ -71,12 +73,13 @@ fun userAgent(path: String, socket: Socket, headers: Map<String, String>) {
 
 fun echo(path: String, socket: java.net.Socket) {
     val payload = path.removePrefix("/echo/")
-    val rawResponse = StringBuilder()
-    rawResponse.append(OK)
-    rawResponse.append("Content-Type: text/plain\r\n")
-    rawResponse.append("Content-Length: ${payload.length}\r\n")
-    rawResponse.append("\r\n")
-    rawResponse.append(payload)
+    val rawResponse = buildString {
+        append(OK)
+        append("Content-Type: text/plain\r\n")
+        append("Content-Length: ${payload.length}\r\n")
+        append("\r\n")
+        append(payload)
+    }
 
     socket.outputStream.write(rawResponse.toString().toByteArray())
 }
@@ -97,4 +100,44 @@ fun readHeader(reader: java.io.BufferedReader): Map<String, String> {
         headers[key] = value
     }
     return headers
+}
+
+fun getOption(args: Array<String>, name: String): String? {
+    val idx = args.indexOf(name)
+    return if (idx != -1) args.getOrNull(idx + 1) else null
+}
+
+fun files(path: String, socket: java.net.Socket, directory: String?) {
+    if (directory == null) {
+        println("Directory not found")
+        socket.outputStream.write(NOT_FOUND.toByteArray())
+        return
+    }
+
+    val fileName = path.removePrefix("/files/")
+    if (fileName.isEmpty()) {
+        println("File not found")
+        socket.outputStream.write(NOT_FOUND.toByteArray())
+        return
+    }
+
+    val file = File(directory, fileName)
+    if (!file.exists()) {
+        println("File not found")
+        socket.outputStream.write(NOT_FOUND.toByteArray())
+        return
+    }
+
+    val bytes = file.readBytes()
+
+    val header = buildString {
+        append(OK)
+        append("Content-Type: application/octet-stream\r\n")
+        append("content-length: ${bytes.size}\r\n")
+        append("\r\n")
+    }
+
+    socket.outputStream.write(header.toByteArray())
+    socket.outputStream.write(bytes)
+
 }
