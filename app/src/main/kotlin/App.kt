@@ -47,10 +47,12 @@ fun main(args: Array<String>) {
                     val headers = readHeader(input)
                     println("headers: $headers")
 
+                    val encodingHeader = headers["accept-encoding"]
+
 
                     when {
                         method == "GET" && path == "/" -> socket.outputStream.write((OK + "\r\n").toByteArray())
-                        method == "GET" && path.startsWith("/echo") -> echo(path, socket)
+                        method == "GET" && path.startsWith("/echo") -> echo(path, socket, encodingHeader)
                         method == "GET" && path == "/user-agent" -> userAgent(path, socket, headers)
                         method == "GET" && path.startsWith("/files") -> getFiles(path, socket, directory)
                         method == "POST" && path.startsWith("/files") -> postFile(
@@ -85,15 +87,21 @@ fun userAgent(path: String, socket: Socket, headers: Map<String, String>) {
     socket.outputStream.write(rawResponse.toString().toByteArray())
 }
 
-fun echo(path: String, socket: java.net.Socket) {
+fun echo(path: String, socket: java.net.Socket, encodingHeader: String?) {
     val payload = path.removePrefix("/echo/")
     val rawResponse = buildString {
         append(OK)
         append("Content-Type: text/plain\r\n")
         append("Content-Length: ${payload.length}\r\n")
+        if (encodingHeader != null && encodingHeader.startsWith("gzip")) {
+            append("Content-Encoding: $encodingHeader")
+            append("\r\n")
+        }
         append("\r\n")
         append(payload)
     }
+
+
 
     socket.outputStream.write(rawResponse.toString().toByteArray())
 }
