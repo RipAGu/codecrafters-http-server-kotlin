@@ -2,13 +2,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.Locale.getDefault
 
 const val OK = "HTTP/1.1 200 OK\r\n"
 const val NOT_FOUND = "HTTP/1.1 404 Not Found\r\n\r\n"
+const val CREATED = "HTTP/1.1 201 Created\r\n\r\n"
 
 fun main(args: Array<String>) {
 
@@ -34,19 +37,30 @@ fun main(args: Array<String>) {
 
             serverScope.launch {
                 try {
-                    val reader = socket.inputStream.bufferedReader()
-                    val requestLine = reader.readLine()
+                    val input = socket.getInputStream()
+
+                    val requestLine = readLine(input)
 
 
                     val (method, path, protocol) = requestLine.split(" ")
-                    val headers = readHeader(reader)
+                    println("method: $method, path: $path, protocol: $protocol")
+                    val headers = readHeader(input)
+                    println("headers: $headers")
 
 
                     when {
-                        path == "/" -> socket.outputStream.write((OK + "\r\n").toByteArray())
-                        path.startsWith("/echo") -> echo(path, socket)
-                        path == "/user-agent" -> userAgent(path, socket, headers)
-                        path.startsWith("/files") -> files(path, socket, directory)
+                        method == "GET" && path == "/" -> socket.outputStream.write((OK + "\r\n").toByteArray())
+                        method == "GET" && path.startsWith("/echo") -> echo(path, socket)
+                        method == "GET" && path == "/user-agent" -> userAgent(path, socket, headers)
+                        method == "GET" && path.startsWith("/files") -> getFiles(path, socket, directory)
+                        method == "POST" && path.startsWith("/files") -> postFile(
+                            directory,
+                            path,
+                            socket,
+                            headers,
+                            input
+                        )
+
                         else -> socket.outputStream.write(NOT_FOUND.toByteArray())
                     }
 
@@ -84,11 +98,27 @@ fun echo(path: String, socket: java.net.Socket) {
     socket.outputStream.write(rawResponse.toString().toByteArray())
 }
 
-fun readHeader(reader: java.io.BufferedReader): Map<String, String> {
-    val headers = mutableMapOf<String, String>()
-
+fun readLine(inputStream: InputStream): String {
+    val lineBytes = ByteArrayOutputStream()
     while (true) {
-        val line = reader.readLine() ?: break
+        val b = inputStream.read()
+        if (b == -1) break
+
+        if (b == '\r'.code) {
+            val next = inputStream.read()
+            if (next == '\n'.code) {
+                break
+            }
+        }
+        lineBytes.write(b)
+    }
+    return lineBytes.toByteArray().decodeToString()
+}
+
+fun readHeader(input: InputStream): Map<String, String> {
+    val header = HashMap<String, String>()
+    while (true) {
+        val line = readLine(input)
         if (line.isEmpty()) break
 
         val idx = line.indexOf(":")
@@ -97,9 +127,44 @@ fun readHeader(reader: java.io.BufferedReader): Map<String, String> {
         val key = line.substring(0, idx).trim().lowercase(getDefault())
         val value = line.substring(idx + 1).trim()
 
-        headers[key] = value
+        header[key] = value
     }
-    return headers
+    return header
+}
+
+fun getBody(header: Map<String, String>, input: InputStream): ByteArray {
+    val length = header["content-length"]?.toIntOrNull() ?: -1
+    if (length == -1) return ByteArray(0)
+
+    val buffer = ByteArray(length)
+    var offset = 0
+
+    while (offset < length) {
+        val byteRead = input.read(buffer, offset, length - offset)
+        if (byteRead == -1) break
+        offset += byteRead
+    }
+    return buffer
+}
+
+fun postFile(
+    directory: String?,
+    path: String,
+    socket: java.net.Socket,
+    headers: Map<String, String>,
+    input: InputStream
+) {
+    val fileName = path.substringAfterLast("/")
+    if (directory == null || fileName == "") {
+        socket.getOutputStream().write(NOT_FOUND.toByteArray())
+        return
+    }
+
+    val body = getBody(headers, input)
+
+    val file = File(directory, fileName)
+    file.writeBytes(body)
+    socket.getOutputStream().write(CREATED.toByteArray())
 }
 
 fun getOption(args: Array<String>, name: String): String? {
@@ -107,7 +172,7 @@ fun getOption(args: Array<String>, name: String): String? {
     return if (idx != -1) args.getOrNull(idx + 1) else null
 }
 
-fun files(path: String, socket: java.net.Socket, directory: String?) {
+fun getFiles(path: String, socket: java.net.Socket, directory: String?) {
     if (directory == null) {
         println("Directory not found")
         socket.outputStream.write(NOT_FOUND.toByteArray())
