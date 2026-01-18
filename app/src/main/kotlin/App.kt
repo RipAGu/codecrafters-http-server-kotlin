@@ -93,17 +93,22 @@ fun echo(path: String, socket: java.net.Socket, encodingHeader: String?) {
         append(OK)
         append("Content-Type: text/plain\r\n")
         append("Content-Length: ${payload.length}\r\n")
-        if (encodingHeader != null && encodingHeader.startsWith("gzip")) {
-            append("Content-Encoding: $encodingHeader")
+        if (isIncludeGzip(encodingHeader)) {
+            append("Content-Encoding: gzip")
             append("\r\n")
         }
         append("\r\n")
         append(payload)
     }
-
-
-
     socket.outputStream.write(rawResponse.toString().toByteArray())
+}
+
+fun isIncludeGzip(encodingHeader: String?): Boolean {
+    if (encodingHeader == null) return false
+    val encodings = encodingHeader.split(",").map {
+        it.trim().lowercase()
+    }
+    return encodings.contains("gzip")
 }
 
 fun readLine(inputStream: InputStream): String {
